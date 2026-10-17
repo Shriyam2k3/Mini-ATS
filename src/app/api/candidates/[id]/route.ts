@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import { Candidate } from "@/models/Candidate";
+import { Job } from "@/models/Job";
 import { candidateSchema, stageUpdateSchema } from "@/lib/validators";
 import { requireAuth } from "@/lib/permissions";
+import { recordActivity } from "@/lib/activity";
 import mongoose from "mongoose";
 
 interface RouteParams {
@@ -10,6 +12,8 @@ interface RouteParams {
     id: string;
   };
 }
+
+export const dynamic = "force-dynamic";
 
 // GET /api/candidates/[id] - Fetch single candidate
 export async function GET(req: NextRequest, { params }: RouteParams) {
@@ -28,6 +32,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     await connectToDatabase();
     const candidate = await Candidate.findById(id)
       .populate("createdBy", "name email image")
+      .populate("jobId", "title department location status employmentType")
       .lean();
 
     if (!candidate) {
@@ -55,6 +60,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
   try {
     const authCheck = await requireAuth();
     if (authCheck.errorResponse) return authCheck.errorResponse;
+    const { user } = authCheck;
 
     const { id } = params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -81,7 +87,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Check if this is only a stage update or a full candidate edit
+    // Check if this is only a stage update
     const isStageOnly = Object.keys(body).length === 1 && "stage" in body;
 
     if (isStageOnly) {
@@ -93,11 +99,38 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
         );
       }
 
-      existing.stage = stageValidation.data.stage;
-      await existing.save();
+      const prevStage = existing.stage;
+      const nextStage = stageValidation.data.stage;
+
+      if (prevStage !== nextStage) {
+        existing.stage = nextStage;
+        await existing.save();
+
+        let activityType: any = "STAGE_CHANGED";
+        let title = `Stage updated to ${nextStage}`;
+        if (nextStage === "Hired") {
+          activityType = "HIRED";
+          title = "Candidate Hired! 🎉";
+        } else if (nextStage === "Rejected") {
+          activityType = "REJECTED";
+          title = "Candidate Rejected";
+        }
+
+        await recordActivity({
+          candidateId: existing._id,
+          type: activityType,
+          title,
+          description: `Stage moved from "${prevStage}" to "${nextStage}".`,
+          previousValue: prevStage,
+          newValue: nextStage,
+          actorId: user.id,
+          actorName: user.name || "Recruiter",
+        });
+      }
 
       const updated = await Candidate.findById(id)
         .populate("createdBy", "name email image")
+        .populate("jobId", "title department status")
         .lean();
 
       return NextResponse.json({
@@ -139,17 +172,69 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
       }
     }
 
+    // Check closed job assignment
+    if (updateData.jobId && updateData.jobId !== existing.jobId?.toString()) {
+      const job = await Job.findById(updateData.jobId);
+      if (job && job.status === "Closed") {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Cannot reassign candidate to job "${job.title}" because this job is closed.`,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    const prevStage = existing.stage;
+    const stageChanged = updateData.stage !== prevStage;
+
     existing.name = updateData.name;
     existing.email = updateData.email;
     existing.phone = updateData.phone;
     existing.jobRole = updateData.jobRole;
     existing.stage = updateData.stage;
     existing.resumeUrl = updateData.resumeUrl;
+    existing.jobId = updateData.jobId ? (new mongoose.Types.ObjectId(updateData.jobId) as any) : undefined;
+    existing.skills = (updateData.skills as string[]) || [];
+    existing.yearsOfExperience = updateData.yearsOfExperience ?? 0;
+    existing.currentCompany = updateData.currentCompany;
+    existing.currentDesignation = updateData.currentDesignation;
+    existing.portfolioUrl = updateData.portfolioUrl;
+    existing.linkedInUrl = updateData.linkedInUrl;
+    existing.notes = updateData.notes;
+    existing.tags = (updateData.tags as string[]) || [];
+    existing.source = updateData.source;
+    existing.noticePeriod = updateData.noticePeriod;
+    existing.expectedSalary = updateData.expectedSalary;
 
     await existing.save();
 
+    if (stageChanged) {
+      await recordActivity({
+        candidateId: existing._id,
+        type: updateData.stage === "Hired" ? "HIRED" : updateData.stage === "Rejected" ? "REJECTED" : "STAGE_CHANGED",
+        title: `Stage updated to ${updateData.stage}`,
+        description: `Stage moved from "${prevStage}" to "${updateData.stage}".`,
+        previousValue: prevStage,
+        newValue: updateData.stage,
+        actorId: user.id,
+        actorName: user.name || "Recruiter",
+      });
+    } else {
+      await recordActivity({
+        candidateId: existing._id,
+        type: "UPDATED",
+        title: "Candidate Profile Updated",
+        description: "Candidate details and information were updated.",
+        actorId: user.id,
+        actorName: user.name || "Recruiter",
+      });
+    }
+
     const populated = await Candidate.findById(id)
       .populate("createdBy", "name email image")
+      .populate("jobId", "title department status")
       .lean();
 
     return NextResponse.json({

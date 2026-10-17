@@ -9,6 +9,8 @@ export function middleware(request: NextRequest) {
     pathname.startsWith("/dashboard") ||
     pathname.startsWith("/candidates") ||
     pathname.startsWith("/pipeline") ||
+    pathname.startsWith("/jobs") ||
+    pathname.startsWith("/interviews") ||
     pathname.startsWith("/settings");
 
   // NextAuth v5 and v4 session tokens
@@ -32,6 +34,8 @@ export const config = {
     "/dashboard/:path*",
     "/candidates/:path*",
     "/pipeline/:path*",
+    "/jobs/:path*",
+    "/interviews/:path*",
     "/settings/:path*",
   ],
 };

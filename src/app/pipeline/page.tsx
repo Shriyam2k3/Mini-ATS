@@ -8,9 +8,10 @@ import { LoadingState } from "@/components/common/LoadingState";
 import { ErrorState } from "@/components/common/ErrorState";
 import { HIRING_STAGES, HiringStage } from "@/constants/stages";
 import { ICandidate } from "@/types/candidate";
-import { Plus } from "lucide-react";
+import { Plus, Sparkles } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 export default function PipelinePage() {
   const { status } = useSession();
@@ -25,7 +26,6 @@ export default function PipelinePage() {
     try {
       setLoading(true);
       setError(null);
-      // Fetch up to 100 candidates to populate columns across stages
       const res = await fetch("/api/candidates?limit=100&sort=createdAt&order=desc");
       if (res.status === 401) {
         router.push("/login");
@@ -51,10 +51,42 @@ export default function PipelinePage() {
     }
   }, [status, router, fetchCandidates]);
 
-  const handleStageChange = (candidateId: string, newStage: HiringStage) => {
+  // Optimistic UI Stage Change with Server Persistence and Rollback
+  const handleStageChange = async (candidateId: string, newStage: HiringStage) => {
+    const candidateToMove = candidates.find((c) => c._id === candidateId);
+    if (!candidateToMove || candidateToMove.stage === newStage) return;
+
+    const previousStage = candidateToMove.stage;
+
+    // 1. Optimistic UI update
     setCandidates((prev) =>
       prev.map((c) => (c._id === candidateId ? { ...c, stage: newStage } : c))
     );
+
+    try {
+      const res = await fetch(`/api/candidates/${candidateId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage: newStage }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Server failed to persist stage change");
+      }
+
+      toast.success(
+        `Moved ${candidateToMove.name} from ${previousStage} to ${newStage}`
+      );
+    } catch (err: any) {
+      // 2. Rollback UI on failure
+      setCandidates((prev) =>
+        prev.map((c) =>
+          c._id === candidateId ? { ...c, stage: previousStage } : c
+        )
+      );
+      toast.error(err.message || "Stage change failed. Rolled back.");
+    }
   };
 
   return (
@@ -63,11 +95,16 @@ export default function PipelinePage() {
         {/* Top Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-              Hiring Pipeline
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+                Hiring Pipeline
+              </h1>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200">
+                Drag &amp; Drop Enabled
+              </span>
+            </div>
             <p className="text-xs text-slate-500 mt-1">
-              Visual recruitment stage progression and candidate tracking
+              Drag candidate cards between columns or use the dropdown selector to transition stages
             </p>
           </div>
 

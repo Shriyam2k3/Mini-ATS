@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import { Candidate } from "@/models/Candidate";
+import { Job } from "@/models/Job";
 import { candidateSchema, candidateQuerySchema } from "@/lib/validators";
 import { requireAuth } from "@/lib/permissions";
+import { recordActivity } from "@/lib/activity";
 import { FilterQuery } from "mongoose";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +21,10 @@ export async function GET(req: NextRequest) {
     const queryValidation = candidateQuerySchema.safeParse({
       search: searchParams.get("search") || undefined,
       stage: searchParams.get("stage") || undefined,
+      jobId: searchParams.get("jobId") || undefined,
+      skill: searchParams.get("skill") || undefined,
+      startDate: searchParams.get("startDate") || undefined,
+      endDate: searchParams.get("endDate") || undefined,
       sort: searchParams.get("sort") || "createdAt",
       order: searchParams.get("order") || "desc",
       page: searchParams.get("page") || 1,
@@ -32,12 +38,44 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const { search, stage, sort, order, page, limit } = queryValidation.data;
+    const {
+      search,
+      stage,
+      jobId,
+      skill,
+      startDate,
+      endDate,
+      sort,
+      order,
+      page,
+      limit,
+    } = queryValidation.data;
 
     const filter: FilterQuery<any> = {};
 
     if (stage && stage !== "ALL") {
       filter.stage = stage;
+    }
+
+    if (jobId && jobId !== "ALL") {
+      filter.jobId = jobId;
+    }
+
+    if (skill && skill.trim()) {
+      filter.skills = { $regex: new RegExp(skill.trim(), "i") };
+    }
+
+    // Date range filter
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) {
+        filter.createdAt.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = end;
+      }
     }
 
     if (search && search.trim() !== "") {
@@ -47,6 +85,8 @@ export async function GET(req: NextRequest) {
         { name: regex },
         { email: regex },
         { jobRole: regex },
+        { currentCompany: regex },
+        { skills: regex },
       ];
     }
 
@@ -60,6 +100,7 @@ export async function GET(req: NextRequest) {
         .skip(skip)
         .limit(limit)
         .populate("createdBy", "name email image")
+        .populate("jobId", "title department status")
         .lean(),
       Candidate.countDocuments(filter),
     ]);
@@ -113,6 +154,20 @@ export async function POST(req: NextRequest) {
     const candidateData = validation.data;
     await connectToDatabase();
 
+    // Check if target job is closed (Requirement 6)
+    if (candidateData.jobId) {
+      const job = await Job.findById(candidateData.jobId);
+      if (job && job.status === "Closed") {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Cannot assign candidate to job "${job.title}" because this job is closed.`,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     // Check for existing candidate with same normalized email
     const existing = await Candidate.findOne({ email: candidateData.email });
     if (existing) {
@@ -130,8 +185,20 @@ export async function POST(req: NextRequest) {
       createdBy: user.id,
     });
 
+    // Record initial activity in timeline
+    await recordActivity({
+      candidateId: newCandidate._id,
+      type: "CREATED",
+      title: "Candidate Profile Created",
+      description: `Candidate profile created in "${newCandidate.stage}" stage for ${newCandidate.jobRole}.`,
+      newValue: newCandidate.stage,
+      actorId: user.id,
+      actorName: user.name || "Recruiter",
+    });
+
     const populatedCandidate = await Candidate.findById(newCandidate._id)
       .populate("createdBy", "name email image")
+      .populate("jobId", "title department status")
       .lean();
 
     return NextResponse.json(

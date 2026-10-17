@@ -7,6 +7,8 @@ import {
   LayoutDashboard,
   Users,
   Kanban,
+  Briefcase,
+  Calendar,
   Settings,
   Sparkles,
   X,
@@ -33,6 +35,16 @@ const NAV_ITEMS = [
     label: "Hiring Pipeline",
     href: "/pipeline",
     icon: Kanban,
+  },
+  {
+    label: "Jobs",
+    href: "/jobs",
+    icon: Briefcase,
+  },
+  {
+    label: "Interviews",
+    href: "/interviews",
+    icon: Calendar,
   },
   {
     label: "Settings",
