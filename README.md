@@ -12,8 +12,8 @@ A comprehensive, production-ready **Mini Applicant Tracking System (ATS)** built
 
 ## 🚀 Live Demo & Repository Links
 
-- **Live Application URL**: `https://earlyjobs-mini-ats.vercel.app` *(or your deployed Vercel domain)*
-- **GitHub Repository**: `https://github.com/your-username/earlyjobs-mini-ats`
+- **Live Application URL**: [https://mini-ats-eight-mu.vercel.app/](https://mini-ats-eight-mu.vercel.app/)
+- **GitHub Repository**: [https://github.com/Shriyam2k3/Mini-ATS](https://github.com/Shriyam2k3/Mini-ATS)
 - **Demo Walkthrough Video**: `https://www.loom.com/share/your-video-id`
 
 ---

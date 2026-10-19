@@ -97,8 +97,8 @@ const CandidateSchema = new Schema<ICandidateDocument>(
       trim: true,
     },
     notes: {
-      type: String,
-      trim: true,
+      type: Schema.Types.Mixed,
+      default: "",
     },
     tags: {
       type: [String],
