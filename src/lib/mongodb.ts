@@ -18,12 +18,16 @@ if (!global.mongooseCache) {
   global.mongooseCache = cached;
 }
 
+const LOCAL_FALLBACK_URI = "mongodb://127.0.0.1:27017/mini_ats";
+
 export async function connectToDatabase(): Promise<typeof mongoose> {
   if (cached.conn) {
     return cached.conn;
   }
 
-  if (!MONGODB_URI) {
+  const primaryUri = process.env.MONGODB_URI;
+
+  if (!primaryUri && !LOCAL_FALLBACK_URI) {
     throw new Error(
       "Please define the MONGODB_URI environment variable inside .env.local"
     );
@@ -33,12 +37,30 @@ export async function connectToDatabase(): Promise<typeof mongoose> {
     const opts = {
       bufferCommands: false,
       maxPoolSize: 10,
-      serverSelectionTimeoutMS: 5000,
+      serverSelectionTimeoutMS: 4000,
     };
 
-    cached.promise = mongoose.connect(MONGODB_URI, opts).then((mongooseInstance) => {
-      return mongooseInstance;
-    });
+    const targetUri = primaryUri || LOCAL_FALLBACK_URI;
+
+    cached.promise = mongoose
+      .connect(targetUri, opts)
+      .catch(async (primaryError) => {
+        // In local development, if primary connection fails (e.g. Atlas IP whitelist restriction), fallback to local MongoDB
+        if (process.env.NODE_ENV !== "production" && targetUri !== LOCAL_FALLBACK_URI) {
+          console.warn(
+            "⚠️ Primary MongoDB connection failed (check Atlas IP whitelist). Falling back to local MongoDB:",
+            LOCAL_FALLBACK_URI
+          );
+          return mongoose.connect(LOCAL_FALLBACK_URI, {
+            ...opts,
+            serverSelectionTimeoutMS: 3000,
+          });
+        }
+        throw primaryError;
+      })
+      .then((mongooseInstance) => {
+        return mongooseInstance;
+      });
   }
 
   try {

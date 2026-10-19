@@ -75,6 +75,7 @@ providers.push(
 );
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  trustHost: true,
   providers,
   // Note: JWT strategy is required when Credentials Provider is enabled alongside OAuth.
   session: {
