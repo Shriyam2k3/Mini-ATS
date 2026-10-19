@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import { Interview } from "@/models/Interview";
 import { Candidate } from "@/models/Candidate";
+import { Job } from "@/models/Job";
+import { User } from "@/models/User";
 import { interviewSchema } from "@/lib/validators";
 import { requireAuth } from "@/lib/permissions";
 import { recordActivity } from "@/lib/activity";
-import { FilterQuery } from "mongoose";
+import mongoose, { FilterQuery } from "mongoose";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +103,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "Invalid interview date" }, { status: 400 });
     }
 
+    let creatorId = user.id;
+    if (!creatorId || !mongoose.Types.ObjectId.isValid(creatorId.toString())) {
+      const dbUser = await User.findOne({ email: user.email.toLowerCase() });
+      if (dbUser) {
+        creatorId = dbUser._id.toString();
+      }
+    }
+
     const newInterview = await Interview.create({
       candidateId,
       jobId: jobId || candidate.jobId,
@@ -111,7 +121,7 @@ export async function POST(req: NextRequest) {
       meetingLink,
       notes,
       status: "Scheduled",
-      createdBy: user.id,
+      createdBy: new mongoose.Types.ObjectId(creatorId),
     });
 
     // Record activity in candidate timeline
@@ -129,7 +139,7 @@ export async function POST(req: NextRequest) {
       title: `${interviewType} Interview Scheduled`,
       description: `Scheduled for ${formattedDate} with interviewer ${interviewerName}.`,
       newValue: interviewType,
-      actorId: user.id,
+      actorId: creatorId,
       actorName: user.name || "Recruiter",
     });
 
@@ -149,7 +159,7 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error("POST /api/interviews error:", error);
     return NextResponse.json(
-      { success: false, error: "Failed to schedule interview" },
+      { success: false, error: error.message || "Failed to schedule interview" },
       { status: 500 }
     );
   }

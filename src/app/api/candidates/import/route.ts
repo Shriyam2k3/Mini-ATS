@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import { Candidate } from "@/models/Candidate";
+import { User } from "@/models/User";
 import { requireAuth } from "@/lib/permissions";
 import { candidateSchema } from "@/lib/validators";
 import { recordActivity } from "@/lib/activity";
+import mongoose from "mongoose";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +25,14 @@ export async function POST(req: NextRequest) {
 
     const { candidates, dryRun = true } = body;
     await connectToDatabase();
+
+    let creatorId = user.id;
+    if (!creatorId || !mongoose.Types.ObjectId.isValid(creatorId.toString())) {
+      const dbUser = await User.findOne({ email: user.email.toLowerCase() });
+      if (dbUser) {
+        creatorId = dbUser._id.toString();
+      }
+    }
 
     const validationErrors: { row: number; email: string; error: string }[] = [];
     const validCandidates: any[] = [];
@@ -66,9 +76,15 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
+      const validJobId =
+        validation.data.jobId && mongoose.Types.ObjectId.isValid(validation.data.jobId)
+          ? new mongoose.Types.ObjectId(validation.data.jobId)
+          : undefined;
+
       validCandidates.push({
         ...validation.data,
-        createdBy: user.id,
+        jobId: validJobId,
+        createdBy: new mongoose.Types.ObjectId(creatorId),
       });
     }
 

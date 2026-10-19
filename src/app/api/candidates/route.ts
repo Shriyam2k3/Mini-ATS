@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import { Candidate } from "@/models/Candidate";
 import { Job } from "@/models/Job";
+import { User } from "@/models/User";
 import { candidateSchema, candidateQuerySchema } from "@/lib/validators";
 import { requireAuth } from "@/lib/permissions";
 import { recordActivity } from "@/lib/activity";
-import { FilterQuery } from "mongoose";
+import mongoose, { FilterQuery } from "mongoose";
 
 export const dynamic = "force-dynamic";
 
@@ -154,9 +155,15 @@ export async function POST(req: NextRequest) {
     const candidateData = validation.data;
     await connectToDatabase();
 
+    // Sanitize jobId: if empty string or invalid, treat as undefined
+    const validJobId =
+      candidateData.jobId && mongoose.Types.ObjectId.isValid(candidateData.jobId)
+        ? candidateData.jobId
+        : undefined;
+
     // Check if target job is closed (Requirement 6)
-    if (candidateData.jobId) {
-      const job = await Job.findById(candidateData.jobId);
+    if (validJobId) {
+      const job = await Job.findById(validJobId);
       if (job && job.status === "Closed") {
         return NextResponse.json(
           {
@@ -180,9 +187,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Ensure valid MongoDB ObjectId for createdBy
+    let creatorId = user.id;
+    if (!creatorId || !mongoose.Types.ObjectId.isValid(creatorId.toString())) {
+      const dbUser = await User.findOne({ email: user.email.toLowerCase() });
+      if (dbUser) {
+        creatorId = dbUser._id.toString();
+      }
+    }
+
     const newCandidate = await Candidate.create({
       ...candidateData,
-      createdBy: user.id,
+      jobId: validJobId ? new mongoose.Types.ObjectId(validJobId) : undefined,
+      createdBy: new mongoose.Types.ObjectId(creatorId),
     });
 
     // Record initial activity in timeline
@@ -192,7 +209,7 @@ export async function POST(req: NextRequest) {
       title: "Candidate Profile Created",
       description: `Candidate profile created in "${newCandidate.stage}" stage for ${newCandidate.jobRole}.`,
       newValue: newCandidate.stage,
-      actorId: user.id,
+      actorId: creatorId,
       actorName: user.name || "Recruiter",
     });
 
@@ -218,7 +235,7 @@ export async function POST(req: NextRequest) {
       );
     }
     return NextResponse.json(
-      { success: false, error: "Failed to create candidate" },
+      { success: false, error: error.message || "Failed to create candidate" },
       { status: 500 }
     );
   }

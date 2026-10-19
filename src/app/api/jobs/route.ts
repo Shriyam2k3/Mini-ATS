@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import { Job } from "@/models/Job";
 import { Candidate } from "@/models/Candidate";
+import { User } from "@/models/User";
 import { jobSchema } from "@/lib/validators";
 import { requireAuth } from "@/lib/permissions";
-import { FilterQuery } from "mongoose";
+import mongoose, { FilterQuery } from "mongoose";
 
 export const dynamic = "force-dynamic";
 
@@ -104,9 +105,17 @@ export async function POST(req: NextRequest) {
 
     await connectToDatabase();
 
+    let creatorId = user.id;
+    if (!creatorId || !mongoose.Types.ObjectId.isValid(creatorId.toString())) {
+      const dbUser = await User.findOne({ email: user.email.toLowerCase() });
+      if (dbUser) {
+        creatorId = dbUser._id.toString();
+      }
+    }
+
     const newJob = await Job.create({
       ...validation.data,
-      createdBy: user.id,
+      createdBy: new mongoose.Types.ObjectId(creatorId),
     });
 
     const populated = await Job.findById(newJob._id)
@@ -124,7 +133,7 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error("POST /api/jobs error:", error);
     return NextResponse.json(
-      { success: false, error: "Failed to create job" },
+      { success: false, error: error.message || "Failed to create job" },
       { status: 500 }
     );
   }
