@@ -30,7 +30,10 @@ export async function recordActivity({
       description,
       previousValue,
       newValue,
-      actorId: actorId ? new mongoose.Types.ObjectId(actorId.toString()) : undefined,
+      actorId:
+        actorId && mongoose.Types.ObjectId.isValid(actorId.toString())
+          ? new mongoose.Types.ObjectId(actorId.toString())
+          : undefined,
       actorName,
       createdAt: new Date(),
     });

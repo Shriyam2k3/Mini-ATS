@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import { Candidate } from "@/models/Candidate";
 import { Job } from "@/models/Job";
+import { User } from "@/models/User";
 import { candidateSchema, stageUpdateSchema } from "@/lib/validators";
 import { requireAuth } from "@/lib/permissions";
 import { recordActivity } from "@/lib/activity";
@@ -251,11 +252,13 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
       );
     }
     return NextResponse.json(
-      { success: false, error: "Failed to update candidate" },
+      { success: false, error: error.message || "Failed to update candidate" },
       { status: 500 }
     );
   }
 }
+
+export const PATCH = PUT;
 
 // DELETE /api/candidates/[id] - Remove candidate record
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
